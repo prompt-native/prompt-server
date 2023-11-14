@@ -13,7 +13,7 @@ pub struct FunctionCall {
 pub struct FunctionParameter {
     pub name: String,
     #[serde(rename = "type")]
-    pub function_type: String,
+    pub parameter_type: String,
     pub required: Option<bool>,
     pub description: Option<String>,
     pub enums: Option<Vec<String>>,
@@ -102,6 +102,21 @@ mod tests {
         let prompt = Chat::from(json).unwrap();
         assert_eq!(prompt.version, "0.2");
         assert_eq!(prompt.engine, "chat-bison");
+
+        let messages = prompt.messages;
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].role, "user");
+        assert_eq!(messages[0].name, None);
+        assert!(messages[0].function_call.is_none());
+        assert_eq!(
+            messages[0].content,
+            Some("Write a hello world in js".to_string())
+        );
+
+        let parameters = prompt.parameters.unwrap();
+        assert_eq!(parameters.len(), 1);
+        assert_eq!(parameters[0].name, "temperature");
+        assert_eq!(parameters[0].value, 0.1);
     }
 
     #[test]
@@ -111,6 +126,7 @@ mod tests {
             "$schema": "../schema/chat-schema.json",
             "version": "0.2",
             "engine": "chat-bison",
+            "context": "you're a smart AI bot",
             "messages": [
               {
                 "role": "user",
@@ -127,23 +143,87 @@ mod tests {
         "#;
 
         let prompt = Chat::from(json).unwrap();
-        assert_eq!(prompt.version, "0.2");
-        assert_eq!(prompt.engine, "chat-bison");
+        assert_eq!(prompt.context, Some("you're a smart AI bot".to_string()));
+    }
 
+    #[test]
+    fn test_should_return_result_when_parse_chat_with_functions() {
+        let json = r#"  
+        {
+            "$schema": "../schema/chat-schema.json",
+            "version": "0.3",
+            "engine": "chat-bison",
+            "messages": [
+              {
+                "role": "user",
+                "content": "What is the weather today in Beijing?"
+              },
+              {
+                "role": "assistant",
+                "function_call": {
+                  "name": "get_weather",
+                  "arguments": "{\n\"city\": \"Beijing\",\n\"time\": \"today\"\n}"
+                }
+              },
+              {
+                "role": "function",
+                "name": "get_weather",
+                "content": "{\"weather\": \"sunny, 25C\"}"
+              }
+            ],
+            "functions": [
+              {
+                "name": "get_weather",
+                "description": "Get the weather today",
+                "parameters": [
+                  {
+                    "name": "city",
+                    "type": "string",
+                    "enums": ["Wuhan", "Beijing"],
+                    "description": "City name",
+                    "required": true
+                  }
+                ]
+              }
+            ],
+            "parameters": [
+              {
+                "name": "temperature",
+                "value": 0.1
+              }
+            ]
+          }          
+        "#;
+
+        let prompt = Chat::from(json).unwrap();
         let messages = prompt.messages;
-        assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].role, "user");
+        let functions = prompt.functions;
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[1].role, "assistant");
         assert_eq!(messages[0].name, None);
-        assert!(messages[0].function_call.is_none());
-        assert_eq!(
-            messages[0].content,
-            Some("Write a hello world in js".to_string())
-        );
+        assert!(messages[1].function_call.is_some());
 
-        let parameters = prompt.parameters.unwrap();
-        assert_eq!(parameters.len(), 1);
-        assert_eq!(parameters[0].name, "temperature");
-        assert_eq!(parameters[0].value, 0.1);
+        assert!(functions.is_some());
+
+        let functions1 = functions.unwrap();
+        assert_eq!(functions1.len(), 1);
+        assert_eq!(functions1[0].name, "get_weather");
+        assert_eq!(
+            functions1[0].description,
+            Some("Get the weather today".to_string())
+        );
+        assert_eq!(functions1[0].parameters.len(), 1);
+        assert_eq!(functions1[0].parameters[0].name, "city");
+        assert_eq!(functions1[0].parameters[0].parameter_type, "string");
+        assert_eq!(
+            functions1[0].parameters[0].description,
+            Some("City name".to_string())
+        );
+        assert_eq!(
+            functions1[0].parameters[0].enums,
+            Some(vec!["Wuhan".to_string(), "Beijing".to_string()])
+        );
+        assert_eq!(functions1[0].parameters[0].required, Some(true));
     }
 
     #[test]
